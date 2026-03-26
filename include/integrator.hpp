@@ -13,8 +13,13 @@ struct IntegratorResult{
 
 // Integrators return a matrix because they have a time dimension
 // Matrices will be of dimension (6xN) because C++ is row-major
-IntegratorResult euler(std::function<Eigen::VectorXd(double, const Eigen::VectorXd&)> func, 
-    double t_start, double t_stop, const Eigen::VectorXd& y0, double delta_t);
+IntegratorResult euler(
+    std::function<Eigen::VectorXd(double, const Eigen::VectorXd&)> func, 
+    double t_start, 
+    double t_stop, 
+    const Eigen::VectorXd& y0,
+    double delta_t
+);
 
 // Function meant to be like RKF45 solver
 IntegratorResult ode45(
