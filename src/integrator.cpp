@@ -103,7 +103,7 @@ IntegratorResult RKF45::integrate(){
         sol_matrix.col(i) = sol[i];
     }
 
-    Eigen::Map<Eigen::VectorXd> t_vec(t.data(), static_cast<int>(t.size()));
+    Eigen::VectorXd t_vec = Eigen::Map<Eigen::VectorXd>(t.data(), static_cast<int>(t.size()));
 
     return IntegratorResult{t_vec, sol_matrix};
 }

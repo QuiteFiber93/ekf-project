@@ -1,0 +1,1 @@
+double R_E = 6378; // km
