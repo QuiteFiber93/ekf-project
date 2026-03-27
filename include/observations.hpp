@@ -1,8 +1,18 @@
 #ifndef OBSERVATIONS_HPP
 #define OBSERVATIONS_HPP
 
+#include <random>
 #include <eigen3/Eigen/Core>
 #include "constants.hpp"
+
+struct MeasurementNoise {
+    Eigen::VectorXd loc; // center of measurement noise
+    Eigen::VectorXd scale; // covariance matrix of measurement noise
+    
+    Eigen::VectorXd sample(const std::mt19937& rng){
+
+    }
+};
 
 // This returns a rotation matrix betwen the ECI and ECF frames
 // Assumes simple rotation about the z axis
@@ -32,7 +42,8 @@ Eigen::VectorXd h(
     const Eigen::VectorXd& station_pos, 
     const double theta, 
     const double lat, 
-    const double lon
+    const double lon,
+    const MeasurementNoise& noise
 ){
 
     // Getting relative position in ENU frame
@@ -42,7 +53,10 @@ Eigen::VectorXd h(
     // Getting range and angle measurements in order rho, az, alt
     Eigen::VectorXd meas(3);
     meas << pos_enu.norm(), atan2(pos_enu(0), pos_enu(1)), asin(pos_enu(2)/pos_enu.norm());
-
+    
+    // Need to add measurement noise base on loc and scale
+    // meas += noise
+    
     return meas;
 }
 
