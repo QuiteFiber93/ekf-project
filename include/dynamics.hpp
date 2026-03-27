@@ -3,7 +3,7 @@
 
 #include <eigen3/Eigen/Core>
 
-Eigen::VectorXd dynamics(double t, const Eigen::VectorXd& y, double mu){
+Eigen::VectorXd dynamics(const double t, const Eigen::VectorXd& y, const double mu){
 
     (void)t; // dynamics do not use time
 
@@ -18,6 +18,10 @@ Eigen::VectorXd dynamics(double t, const Eigen::VectorXd& y, double mu){
     ydot.tail(3) = -mu * r / r_norm_cubed;
 
     return ydot;
+}
+
+Eigen::MatrixXd dynamics_jacobian(double t, const Eigen::VectorXd& y, const double mu){
+    Eigen::MatrixXd jacobian = Eigen::MatrixXd::Zero(static_cast<int>(y.size()), static_cast<int>(y.size()));
 }
 
 #endif
