@@ -91,7 +91,8 @@ Eigen::MatrixXd generate_measurements(
         
         theta = omega * t(i) + GMA;
         // Rotating position vector to station ENU frame
-        meas.col(i) = h(states.col(i), station_pos, theta, station_lat, station_lon);
+        MeasurementNoise noise = MeasurementNoise{Eigen::Vector3d::Zero(), Eigen::Matrix3d::Zero()};
+        meas.col(i) = h(states.col(i), station_pos, theta, station_lat, station_lon, noise);
     }
 
     return meas;
