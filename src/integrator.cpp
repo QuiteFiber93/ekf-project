@@ -107,3 +107,7 @@ IntegratorResult RKF45::integrate(){
 
     return IntegratorResult{t_vec, sol_matrix};
 }
+
+IntegratorResult RKF45::integrate(Eigen::VectorXd& teval){
+
+}

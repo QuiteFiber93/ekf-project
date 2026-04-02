@@ -43,6 +43,7 @@ struct RKF45{
     // Function to integrate the entire time interval
     // This will call the step() function
     IntegratorResult integrate();
+    IntegratorResult integrate(Eigen::VectorXd& teval);
 };
 
 #endif
