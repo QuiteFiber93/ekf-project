@@ -1,6 +1,7 @@
 #include <eigen3/Eigen/Core>
 #include <cmath>
 #include "integrator.hpp"
+#include "interpolate.hpp"
 
 Eigen::VectorXd RKF45::step(const double tk, const Eigen::VectorXd& yk, double h, double tol) {
     // "Next step"
@@ -109,5 +110,69 @@ IntegratorResult RKF45::integrate(){
 }
 
 IntegratorResult RKF45::integrate(Eigen::VectorXd& teval){
+
+    // Solution ouput storage
+    const int n_eval = static_cast<int>(teval.size());
+    const int n_state = static_cast<int>(y0.size());
+
+    Eigen::MatrixXd sol_eval(n_state, n_eval);
+
+    // initializing states and time steps
+    Eigen::VectorXd yk = y0;
+    double tk = t_start;
+
+    double h = 1.0;
+    current_step = h;
+
+    // Keeping track of position in teval
+    int eval_idx = 0;
+
+    // Handle any evaluation times that coincide with t_start
+    while (eval_idx < n_eval && std::abs(teval(eval_idx) - tk) < 1E-12){
+        sol_eval.col(eval_idx) = yk;
+        eval_idx++;
+    }
+ 
+    // Integrate step by step, interpolating into teval as we go
+    while (tk < t_stop - 1E-12 && eval_idx < n_eval){
+ 
+        // Derivative at the start of this step (needed for Hermite)
+        Eigen::VectorXd fk = func(tk, yk);
+ 
+        // Take one adaptive step
+        Eigen::VectorXd yk1 = step(tk, yk, current_step, tol);
+ 
+        if (err_flag){
+            break;
+        }
+ 
+        double tk1 = tk + current_step;
+ 
+        // Derivative at the end of this step
+        Eigen::VectorXd fk1 = func(tk1, yk1);
+ 
+        // Fill in any teval points that fall within [tk, tk1]
+        while (eval_idx < n_eval && teval(eval_idx) <= tk1 + 1E-12){
+            double t_req = teval(eval_idx);
+ 
+            if (std::abs(t_req - tk1) < 1E-12){
+                // Exactly at the step endpoint — no interpolation needed
+                sol_eval.col(eval_idx) = yk1;
+            } else {
+                // Hermite interpolation within this step
+                sol_eval.col(eval_idx) = hermite_interp(tk, yk, fk, tk1, yk1, fk1, t_req);
+            }
+            eval_idx++;
+        }
+ 
+        // Advance
+        tk = tk1;
+        yk = yk1;
+ 
+        // Grow h modestly for the next step
+        current_step = std::min(current_step * 1.5, t_stop - tk);
+    }
+ 
+    return IntegratorResult{teval, sol_eval};
 
 }
