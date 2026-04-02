@@ -12,23 +12,33 @@ int main(){
     // --- Physical constants ---
     const double mu = 398600.4418;       // km^3/s^2
     const double omega_e = 2.0 * M_PI / 86164.1; // Earth rotation rate (rad/s)
-    const double GMA0 = 0.0;            // Greenwich Mean Angle at t=0
+    // Greenwich Mean Angle at t=0.
+    // With the satellite starting at (7000,0,0) in ECI, it crosses the
+    // ECI x-axis. Setting GMA0 ≈ station longitude puts the station's
+    // meridian near the ascending node, giving an early visible pass.
+    const double GMA0 = -80.6 * M_PI / 180.0;  // matches station longitude
 
     // --- True initial state (ECI) ---
-    // LEO orbit: ~7000 km altitude, circular-ish
+    // LEO orbit at 7000 km radius, inclined ~45° so ground track passes
+    // over Cape Canaveral (28.5°N). Circular speed = sqrt(mu/r) ≈ 7.546 km/s.
+    // Velocity is split between y and z to give the inclination:
+    //   vy = v * cos(45°),  vz = v * sin(45°)
+    const double v_circ = std::sqrt(mu / 7000.0); // ~7.546 km/s
+    const double inc = 45.0 * M_PI / 180.0;       // 45° inclination
+
     Eigen::VectorXd x0_true(6);
-    x0_true << 7000.0, 0.0, 0.0,        // position (km)
-               0.0, 7.546, 0.0;          // velocity (km/s) — roughly circular
+    x0_true << 7000.0, 0.0, 0.0,                          // position (km)
+               0.0, v_circ * cos(inc), v_circ * sin(inc);  // velocity (km/s)
 
     // --- Initial estimate (perturbed from truth) ---
     Eigen::VectorXd x0_est(6);
-    x0_est << 7010.0, 5.0, -3.0,         // +10 km, +5 km, -3 km position error
-              0.01, 7.54, 0.005;          // small velocity errors
+    x0_est << 7010.0, 5.0, -3.0,                                      // +10, +5, -3 km position error
+              0.01, v_circ * cos(inc) - 0.006, v_circ * sin(inc) + 0.005; // small velocity errors
 
     // --- Initial covariance ---
     Eigen::MatrixXd P0 = Eigen::MatrixXd::Zero(6, 6);
-    P0.diagonal() << 10000.0, 10000.0, 100.0,   // position variance (km^2)
-                      0.01, 0.01, 0.01;      // velocity variance (km/s)^2
+    P0.diagonal() << 10000.0, 10000.0, 10000.0, // position variance (km^2)
+                      0.01, 0.01, 0.01;          // velocity variance (km/s)^2
 
     // --- Process noise covariance ---
     Eigen::MatrixXd Q = Eigen::MatrixXd::Zero(6, 6);
@@ -52,9 +62,15 @@ int main(){
     noise.loc = Eigen::VectorXd::Zero(3);
     noise.scale = station.obsv_cov;
 
+    // --- Elevation mask ---
+    const double elev_mask_deg = 10.0;       // minimum elevation angle (degrees)
+    const double elev_mask = elev_mask_deg * M_PI / 180.0; // convert to radians
+
     // --- Simulation parameters ---
+    // Orbital period at 7000 km ≈ 2π√(r³/μ) ≈ 5828 s (~97 min)
+    // Run for a full orbit to capture a complete overhead pass
     const double t_start = 0.0;
-    const double t_end = 300.0;             // ~1 orbit
+    const double t_end = 6000.0;             // ~1 full orbit
     const double sample_period = 10.0;       // measurement every 10 seconds
     const int n_steps = static_cast<int>((t_end - t_start) / sample_period);
 
@@ -107,18 +123,56 @@ int main(){
     // Storage for position error over time
     Eigen::VectorXd pos_error(n_steps);
 
+    // Track visibility statistics
+    int visible_count = 0;
+
     for (int k = 0; k < n_steps; k++){
         // Earth rotation angle at measurement time
         double theta = omega_e * teval(k + 1) + GMA0;
 
-        // Run one EKF step: predict from t_k to t_{k+1}, then update
-        EstimatorResult result = ekf(
-            estimate, P, measurements.col(k + 1),
-            Q, f, F, station, sample_period, theta
-        );
+        // --- Elevation check using the true state ---
+        // Compute the noiseless observation to get the elevation angle
+        Eigen::VectorXd obs_true = h(truth.sol.col(k + 1), station, theta);
+        double elevation = obs_true(2); // elevation angle is the 3rd component (index 2)
 
-        estimate = result.state_estimate;
-        P = result.cov;
+        if (elevation >= elev_mask){
+            // Satellite is visible — run full EKF predict + update
+            visible_count++;
+
+            EstimatorResult result = ekf(
+                estimate, P, measurements.col(k + 1),
+                Q, f, F, station, sample_period, theta
+            );
+
+            estimate = result.state_estimate;
+            P = result.cov;
+        } else {
+            // Satellite is below elevation mask — predict only (no measurement update)
+            // Build the augmented state for covariance propagation
+            auto augmented_dynamics = [&f, &F, &Q](double t, const Eigen::VectorXd& augmented_state) -> Eigen::VectorXd {
+                Eigen::VectorXd x = augmented_state.head(6);
+                Eigen::MatrixXd Pk = Eigen::Map<const Eigen::MatrixXd>(augmented_state.data() + 6, 6, 6);
+
+                Eigen::VectorXd xdot = f(t, x);
+                Eigen::MatrixXd Ft = F(t, x);
+                Eigen::MatrixXd Pdot = Ft * Pk + Pk * Ft.transpose() + Q;
+
+                Eigen::VectorXd augmented_statedot(42);
+                augmented_statedot.head(6) = xdot;
+                Eigen::Map<Eigen::MatrixXd>(augmented_statedot.data() + 6, 6, 6) = Pdot;
+                return augmented_statedot;
+            };
+
+            Eigen::VectorXd augmented_state(42);
+            augmented_state.head(6) = estimate;
+            Eigen::Map<Eigen::MatrixXd>(augmented_state.data() + 6, 6, 6) = P;
+
+            RKF45 solver(augmented_dynamics, 0.0, sample_period, augmented_state);
+            Eigen::VectorXd augmented_prediction = solver.integrate().sol.rightCols(1);
+
+            estimate = augmented_prediction.head(6);
+            P = Eigen::Map<Eigen::MatrixXd>(augmented_prediction.data() + 6, 6, 6);
+        }
 
         // Compute position error (truth vs estimate)
         Eigen::Vector3d true_pos = truth.sol.col(k + 1).head(3);
@@ -129,12 +183,16 @@ int main(){
         if ((k + 1) % 6 == 0){
             double t_now = teval(k + 1);
             std::cout << "t=" << t_now << "s  pos_err=" << pos_error(k)
-                      << " km  P_trace=" << P.diagonal().head(3).sum() << std::endl;
+                      << " km  P_trace=" << P.diagonal().head(3).sum()
+                      << (elevation >= elev_mask ? "  [visible]" : "  [masked]")
+                      << std::endl;
         }
     }
 
     // --- Summary ---
     std::cout << "\n=== EKF Summary ===" << std::endl;
+    std::cout << "Elevation mask:         " << elev_mask_deg << " deg" << std::endl;
+    std::cout << "Visible measurements:   " << visible_count << " / " << n_steps << std::endl;
     std::cout << "Initial position error: "
               << (x0_true.head(3) - x0_est.head(3)).norm() << " km" << std::endl;
     std::cout << "Final position error:   " << pos_error(n_steps - 1) << " km" << std::endl;
