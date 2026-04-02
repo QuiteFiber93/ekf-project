@@ -1,4 +1,4 @@
 build/
-*.0
+*.o
 *.exe
-*.vscode/
+.vscode/
