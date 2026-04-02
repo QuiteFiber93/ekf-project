@@ -27,7 +27,7 @@ int main(){
 
     // --- Initial covariance ---
     Eigen::MatrixXd P0 = Eigen::MatrixXd::Zero(6, 6);
-    P0.diagonal() << 100.0, 100.0, 100.0,   // position variance (km^2)
+    P0.diagonal() << 10000.0, 10000.0, 100.0,   // position variance (km^2)
                       0.01, 0.01, 0.01;      // velocity variance (km/s)^2
 
     // --- Process noise covariance ---
@@ -54,7 +54,7 @@ int main(){
 
     // --- Simulation parameters ---
     const double t_start = 0.0;
-    const double t_end = 6000.0;             // ~1 orbit
+    const double t_end = 300.0;             // ~1 orbit
     const double sample_period = 10.0;       // measurement every 10 seconds
     const int n_steps = static_cast<int>((t_end - t_start) / sample_period);
 
